@@ -1385,6 +1385,7 @@
       <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input id="logSearch" placeholder="Search user / column / value…"></label>
       <div style="flex:1"></div>
       <button class="btn" id="logRefresh">Refresh</button>
+      <button class="btn solid" id="logDownload">Download .xlsx</button>
     </div>
     <div class="log-body" id="logBody"><div class="empty" style="padding:30px">Loading…</div></div>
   </div>
@@ -1541,8 +1542,8 @@ function persistAll(reason){
   clearTimeout(_persistT);
   _persistT=setTimeout(runPersist, 700);
 }
-async function runPersist(){
-  if(!S.buy){ return; }
+async function runPersist(force){
+  if(!S.buy && !force){ return; }   // normal saves need data; removals force an empty snapshot
   if(_persisting){ _persistAgain=true; return; }   // coalesce overlapping saves
   _persisting=true;
   try{
@@ -1562,6 +1563,7 @@ async function runPersist(){
   _persisting=false;
   if(_persistAgain){ _persistAgain=false; runPersist(); }
 }
+function persistNow(force){ clearTimeout(_persistT); runPersist(force); }
 // kept for back-compat with existing call sites
 function saveSession(){ persistAll("local"); }
 function cloudSyncOut(reason){ persistAll(reason); }
@@ -2099,7 +2101,8 @@ function removeBuyFile(){
   if(el("uploadValidation")){ const p=el("uploadValidation").querySelector('.uv-panel[data-file="buy"]'); if(p) p.remove(); if(!el("uploadValidation").children.length) el("uploadValidation").style.display="none"; }
   const oc=el("navOutCt"); if(oc) oc.style.display="none";
   refreshRun(); updateUploadSummary&&updateUploadSummary(); updateDestBadge&&updateDestBadge();
-  saveSession(); cloudSyncOut("removeBuy"); flash("Buy File removed.");
+  persistNow(true);   // force-save the cleared state (incl. shared cloud) so it stays removed after refresh
+  flash("Buy File removed.");
 }
 function removeProcFile(){
   S.proc=null; S.merchants=[]; S.selected&&S.selected.clear&&S.selected.clear(); S.output=null;
@@ -2114,10 +2117,10 @@ function removeProcFile(){
   const ms=el("merchant"); if(ms){ ms.innerHTML='<option>Load Buy Processing first…</option>'; ms.disabled=true; }
   const oc=el("navOutCt"); if(oc) oc.style.display="none";
   renderCats&&renderCats(); refreshRun(); updateUploadSummary&&updateUploadSummary();
-  saveSession(); cloudSyncOut("removeProc"); logChange("remove",{}); flash("Buy Processing removed.");
+  persistNow(true); logChange("remove",{}); flash("Buy Processing removed.");
 }
-el("buyRemove") && el("buyRemove").addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); removeBuyFile(); });
-el("procRemove") && el("procRemove").addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); removeProcFile(); });
+el("buyRemove") && el("buyRemove").addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); if(confirm("Remove the Buy File? This clears it for everyone in the shared workspace and can't be undone.")) removeBuyFile(); });
+el("procRemove") && el("procRemove").addEventListener("click",e=>{ e.preventDefault(); e.stopPropagation(); if(confirm("Remove the Buy Processing file? This clears it for everyone in the shared workspace and can't be undone.")) removeProcFile(); });
 function showUploadError(which,name,msg){
   const host=el("uploadValidation"); if(!host)return; host.style.display="";
   host.innerHTML=`<div class="uv-panel err"><div class="uv-h"><span class="uv-badge err">✕ ${which==="buy"?"Buy File":"Buy Processing"}</span> ${escapeHtml(name)}</div><div class="uv-msg">${escapeHtml(msg)}</div></div>`;
@@ -2770,6 +2773,7 @@ el("runBtn").addEventListener("click",()=>{
   const detail=[];   // collect category detail lines (silent), shown only on demand
   const log=(m,cls="")=>{ detail.push({m,cls}); };
 
+  enrichBuy();   // always refresh computed columns (incl. 1st Req HOD) before mapping — fixes stale/blank dates after a session restore
   const buyIndex=indexBuy();
   const procRows=merchant==="__ALL__"?S.proc:S.proc.filter(r=>norm(pick(r,["Sample Mapping By"])).toLowerCase().includes(merchant.toLowerCase()));
   const ctx={merchant,today:new Date()};
@@ -4295,11 +4299,18 @@ function enrichBuy(){
     r["Shipment Sample"]=(ssv!=null&&ssv!=="")?ssv:"";
   });
   // pass 2: MINIFS groups by Style+Color
-  const minOf=(field)=>{ const m=new Map(); S.buy.forEach(r=>{ const v=r[field]; if(v===""||v==null)return; const sc=r["Style + Color"]; const num=(v instanceof Date)?v.getTime():Number(v); if(isNaN(num))return; const cur=m.get(sc); if(cur===undefined||num<cur)m.set(sc,num); }); return m; };
-  const minDPri=minOf("Destination Priority");
-  const minHOD =minOf("Req HOD");
-  const minDC  =minOf("Req In DC");
-  const minBV  =minOf("Destination Priority (BV)");
+  // (dates may be Date objects OR ISO strings after a session restore — handle both)
+  const numVal=(v,isDate)=>{
+    if(v===""||v==null) return NaN;
+    if(v instanceof Date) return v.getTime();
+    if(isDate){ const d=toDate(v); return d?d.getTime():NaN; }
+    return Number(v);
+  };
+  const minOf=(field,isDate)=>{ const m=new Map(); S.buy.forEach(r=>{ const sc=r["Style + Color"]; const num=numVal(r[field],isDate); if(isNaN(num))return; const cur=m.get(sc); if(cur===undefined||num<cur)m.set(sc,num); }); return m; };
+  const minDPri=minOf("Destination Priority",false);
+  const minHOD =minOf("Req HOD",true);
+  const minDC  =minOf("Req In DC",true);
+  const minBV  =minOf("Destination Priority (BV)",false);
   S.buy.forEach(r=>{
     const sc=r["Style + Color"];
     const pSC = minDPri.has(sc)?minDPri.get(sc):"";
@@ -4566,6 +4577,22 @@ el("logClose") && el("logClose").addEventListener("click",()=>{ el("logOverlay")
 el("logOverlay") && el("logOverlay").addEventListener("click",e=>{ if(e.target===el("logOverlay")) el("logOverlay").style.display="none"; });
 el("logRefresh") && el("logRefresh").addEventListener("click",openProcLog);
 el("logSearch") && el("logSearch").addEventListener("input",e=>renderLogBody(e.target.value));
+el("logDownload") && el("logDownload").addEventListener("click",()=>{
+  if(!_logCache.length){ flash("Nothing to download."); return; }
+  const aoa=[["When","User","Action","Details"]];
+  _logCache.forEach(r=>{
+    const d=r.detail||{}; let det="";
+    if(r.action==="upload") det=`Uploaded ${d.name||""}${d.rows?` (${d.rows} rows)`:""}`;
+    else if(r.action==="remove") det="Removed the file";
+    else if(r.action==="edit"){ const es=(d.edits||[]); det=`Edited ${d.count||es.length} cell(s): `+es.map(x=>`${x.row} · ${x.column}: "${x.from}"→"${x.to}"`).join(" | "); }
+    aoa.push([ fmtLogTs(r.ts), r.user_name||"", r.action||"", det ]);
+  });
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:20},{wch:16},{wch:10},{wch:90}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Change Log");
+  saveStyledWorkbook(wb,"Buy_Processing_ChangeLog_"+new Date().toISOString().slice(0,10)+".xlsx");
+  flash("Change log downloaded.");
+});
 
 /* ---- Update GB Testing column in Buy Processing ----
    A style ships to China if any of its Buy File rows has a Channel containing "China".
@@ -5854,8 +5881,6 @@ el("themeToggle") && el("themeToggle").addEventListener("click",()=>{
   const lastView=Store.get("lastView",null);
   const safeViews=["uploader","logic","templates","guide","mapping"];
   if(lastView && safeViews.includes(lastView)) { try{ go(lastView); }catch(e){} }
-  // first-run guided tour
-  if(!Store.get("tourDone",false)){ setTimeout(()=>{ try{ startTour(); }catch(e){} }, 600); }
 })();
 
 renderCats(); refreshRun(); infoStatus();
@@ -5878,6 +5903,8 @@ function greetUser(name){
   const first=(name||"").trim().split(/\s+/)[0]||name;
   flash(`Hi ${first} 👋 — welcome back.`);
   const sm=el("smsg"); if(sm) sm.textContent=`Signed in as ${name}. Ready.`;
+  // first-run guided tour — after login, once per user
+  try{ if(!Store.get("tourDone",false)){ setTimeout(()=>{ try{ startTour(); }catch(e){} }, 800); } }catch(e){}
 }
 el("cgSkip") && el("cgSkip").addEventListener("click",async()=>{
   el("cloudGate").style.display="none";
