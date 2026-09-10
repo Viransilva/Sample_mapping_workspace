@@ -704,6 +704,15 @@
   .le-arrow{color:var(--muted)}
   .le-to{color:var(--ok);font-weight:600}
   .log-more{font-size:11px;color:var(--muted);padding:4px 2px}
+  /* change log table view */
+  .logtbl{font-size:12px}
+  .logtbl th{position:sticky;top:0;background:var(--paper-2);z-index:2;white-space:nowrap;padding:9px 12px}
+  .logtbl td{padding:8px 12px;vertical-align:top;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .logtbl .lg-when{color:var(--muted);white-space:nowrap;font-size:11.5px}
+  .logtbl .lg-user{font-weight:600;white-space:nowrap}
+  .logtbl .lg-from{color:var(--del)}
+  .logtbl .lg-to{color:var(--ok);font-weight:600}
+  .logtbl .lg-dim{color:var(--muted);opacity:.6}
   @media(max-width:640px){.log-edit{grid-template-columns:1fr;gap:2px}.le-arrow{display:none}}
   /* base size coverage modal */
   .basemodal{width:min(620px,94vw);padding:0;display:flex;flex-direction:column;max-height:82vh}
@@ -2890,7 +2899,8 @@ function makeResizable(table){
     if(th.querySelector(".col-resize")) return;   // already has a handle
     const grip=document.createElement("span");
     grip.className="col-resize";
-    th.style.position="relative";
+    // NOTE: do NOT set th.style.position — the CSS sets sticky, which is itself a
+    // positioning context for the absolutely-positioned grip. Overriding it breaks sticky headers.
     th.appendChild(grip);
     grip.addEventListener("mousedown",e=>{
       e.preventDefault(); e.stopPropagation();
@@ -4274,7 +4284,7 @@ function renderGrid(rows, headEl, bodyEl, countEl, filterText, colFilter, onlyCo
     if(match && activeCols.length) match=activeCols.every(h=>xlfMatch(dispCell(row[h],h), colF[h]));
     if(!match)continue;
     matched++;
-    if(shown>=500) continue;   // keep counting matches, but only render first 500
+    if(shown>=150) continue;   // render first 150 for speed; count still reflects all matches
     shown++;
     const tr=document.createElement("tr");
     tr.className = editable ? (buyDirty.has(i)?"dirty":(buySaved.has(i)?"saved":"")) : "ro";
@@ -4295,7 +4305,7 @@ function renderGrid(rows, headEl, bodyEl, countEl, filterText, colFilter, onlyCo
   }
   bodyEl.innerHTML=""; bodyEl.appendChild(frag);
   makeResizable(bodyEl.closest("table"));
-  const capNote = matched>500 ? ` (showing first 500)` : "";
+  const capNote = matched>150 ? ` (showing first 150)` : "";
   countEl.textContent=(f||activeCols.length)?`${matched.toLocaleString()} of ${rows.length.toLocaleString()}${capNote}`:`${rows.length.toLocaleString()} rows`;
   // per-column filter inputs
   headEl.querySelectorAll(".gcolfilter").forEach(inp=>{
@@ -4332,7 +4342,10 @@ function gridCellClick(e){
     const h=Object.keys(S.buy[0])[ci];
     let val=inp.value;
     const wasDate = !isCodeCol(h) && toDate(S.buy[idx][h])!==null;
-    if(wasDate){ const dt=parseDateInput(val); S.buy[idx][h]=dt; val=(dt instanceof Date)?fmtDate(dt):norm(dt); }
+    if(wasDate){ const dt=parseDateInput(val); val=(dt instanceof Date)?fmtDate(dt):norm(dt); }
+    // no real change → just restore the plain cell, don't mark dirty or save
+    if(norm(val).trim()===norm(cur).trim()){ td.innerHTML=cur||"&nbsp;"; return; }
+    if(wasDate){ const dt=parseDateInput(inp.value); S.buy[idx][h]=dt; }
     else S.buy[idx][h]= val===""?null:val;
     const cellKey=idx+":"+ci;
     buyDirty.add(idx); buyDirtyCells.add(cellKey); buySaved.delete(idx); buySavedCells.delete(cellKey);
@@ -4549,7 +4562,7 @@ function renderProc(){
     }
     if(pActive.length && !pActive.every(ci=>xlfMatch(dispCell(row[headers[+ci]],headers[+ci]), procColF[ci]))) continue;
     matched++;
-    if(shown>=500) continue;
+    if(shown>=150) continue;
     shown++;
     const tr=document.createElement("tr");
     if(procDirty.has(origIdx)) tr.className="dirty"; else if(procSaved.has(origIdx)) tr.className="saved";
@@ -4565,7 +4578,7 @@ function renderProc(){
   tb.appendChild(frag);
   makeResizable(el("procTbl"));
   if(!shown){ tb.innerHTML=`<tr><td colspan="${headers.length+2}"><div class="empty">No rows${f?" match “"+procFilter+"”":""}.</div></td></tr>`; }
-  el("procCount").textContent=(f||pActive.length)?`${matched.toLocaleString()} of ${indexed.length.toLocaleString()}${matched>500?" (showing first 500)":""}`:`${indexed.length.toLocaleString()} rows`;
+  el("procCount").textContent=(f||pActive.length)?`${matched.toLocaleString()} of ${indexed.length.toLocaleString()}${matched>150?" (showing first 150)":""}`:`${indexed.length.toLocaleString()} rows`;
   // per-column filter inputs
   el("procHead").querySelectorAll(".pcolfilter").forEach(inp=>{
     inp.addEventListener("input",e=>{
@@ -4599,13 +4612,14 @@ function procCellClick(e){
   const commit=()=>{
     let val=inp.value;
     const wasDate = !isCodeCol(h) && (toDate(S.proc[idx][h])!==null || isHodCol(h));
-    if(wasDate){ const d=parseDateInput(val); S.proc[idx][h]=d; val=(d instanceof Date)?fmtDate(d):norm(d); }
+    if(wasDate){ const d=parseDateInput(val); val=(d instanceof Date)?fmtDate(d):norm(d); }
+    // no real change → restore plain cell, don't mark dirty
+    if(norm(val).trim()===norm(oldVal).trim()){ td.innerHTML=cur||"&nbsp;"; return; }
+    if(wasDate){ const d=parseDateInput(inp.value); S.proc[idx][h]=d; }
     else S.proc[idx][h]= val===""?null:val;
-    if(norm(oldVal)!==norm(val)){
-      const row=S.proc[idx];
-      const rowKey=norm(pick(row,["Style+Option"]))||`${norm(pick(row,["Style No"]))}-${norm(pick(row,["Colour Code"]))}`;
-      procPendingEdits.push({ row:rowKey, column:norm(h).replace(/<br>/g," ").trim(), from:oldVal, to:val });
-    }
+    const row=S.proc[idx];
+    const rowKey=norm(pick(row,["Style+Option"]))||`${norm(pick(row,["Style No"]))}-${norm(pick(row,["Colour Code"]))}`;
+    procPendingEdits.push({ row:rowKey, column:norm(h).replace(/<br>/g," ").trim(), from:oldVal, to:val });
     const cellKey=idx+":"+ci;
     procDirty.add(idx); procDirtyCells.add(cellKey); procSaved.delete(idx); procSavedCells.delete(cellKey);
     td.innerHTML=val||"&nbsp;"; td.classList.add("cell-dirty"); td.classList.remove("cell-saved");
@@ -4663,23 +4677,35 @@ function renderLogBody(q){
     return hay.includes(q);
   });
   if(!items.length){ el("logBody").innerHTML=`<div class="empty" style="padding:30px">No matching changes.</div>`; return; }
-  el("logBody").innerHTML=items.map(r=>{
-    const d=r.detail||{};
-    let body="";
-    if(r.action==="upload"){ body=`Uploaded the file${d.name?` — <b>${escapeHtml(d.name)}</b>`:""}${d.rows?` (${d.rows} rows)`:""}.`; }
-    else if(r.action==="remove"){ body=`Removed the Buy Processing file.`; }
-    else if(r.action==="edit"){
-      const edits=d.edits||[];
-      const rows=edits.slice(0,20).map(x=>`<div class="log-edit"><span class="le-row">${escapeHtml(x.row)}</span><span class="le-col">${escapeHtml(x.column)}</span><span class="le-from">${escapeHtml(x.from)||'∅'}</span><span class="le-arrow">→</span><span class="le-to">${escapeHtml(x.to)||'∅'}</span></div>`).join("");
-      body=`Edited <b>${d.count||edits.length}</b> cell${(d.count||edits.length)>1?"s":""}:<div class="log-edits">${rows}${edits.length>20?`<div class="log-more">+${edits.length-20} more…</div>`:""}</div>`;
-    } else { body=escapeHtml(r.action); }
-    const badge = r.action==="upload"?"up":r.action==="remove"?"rm":"ed";
-    const bl = {up:"Upload",rm:"Remove",ed:"Edit"}[badge];
-    return `<div class="log-item">
-      <div class="log-item-head"><span class="log-badge ${badge}">${bl}</span><span class="log-user">${escapeHtml(r.user_name||"unknown")}</span><span class="log-ts">${fmtLogTs(r.ts)}</span></div>
-      <div class="log-item-body">${body}</div>
-    </div>`;
-  }).join("");
+  // flatten to rows: file edits become one row per changed cell; upload/remove one row each
+  const rows=[];
+  items.forEach(r=>{
+    const d=r.detail||{}, when=fmtLogTs(r.ts), user=escapeHtml(r.user_name||"unknown");
+    if(r.action==="edit"){
+      const es=d.edits||[];
+      if(!es.length){ rows.push({when,user,badge:"ed",action:"Edit",row:"",col:"",from:"",to:`${d.count||0} cells`}); }
+      es.forEach(x=>rows.push({when,user,badge:"ed",action:"Edit",row:escapeHtml(x.row),col:escapeHtml(x.column),from:escapeHtml(x.from),to:escapeHtml(x.to)}));
+    } else if(r.action==="upload"){
+      rows.push({when,user,badge:"up",action:"Upload",row:"",col:"",from:"",to:escapeHtml((d.name||"")+(d.rows?` (${d.rows} rows)`:""))});
+    } else if(r.action==="remove"){
+      rows.push({when,user,badge:"rm",action:"Remove",row:"",col:"",from:"",to:"File removed"});
+    } else {
+      rows.push({when,user,badge:"ed",action:escapeHtml(r.action),row:"",col:"",from:"",to:""});
+    }
+  });
+  const bl={up:"Upload",rm:"Remove",ed:"Edit"};
+  el("logBody").innerHTML=`<table class="simple-tbl logtbl"><thead><tr>`+
+    `<th>When</th><th>User</th><th>Action</th><th>Row (Style+Colour)</th><th>Column</th><th>From</th><th>To</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr>`+
+      `<td class="lg-when">${r.when}</td>`+
+      `<td class="lg-user">${r.user}</td>`+
+      `<td><span class="log-badge ${r.badge}">${bl[r.badge]||r.action}</span></td>`+
+      `<td class="ell" title="${r.row}">${r.row||'<span class="lg-dim">—</span>'}</td>`+
+      `<td>${r.col||'<span class="lg-dim">—</span>'}</td>`+
+      `<td class="lg-from">${r.from!==""?r.from:'<span class="lg-dim">∅</span>'}</td>`+
+      `<td class="lg-to">${r.to!==""?r.to:'<span class="lg-dim">∅</span>'}</td>`+
+      `</tr>`).join("")+
+    `</tbody></table>`;
 }
 el("procLogBtn") && el("procLogBtn").addEventListener("click",openProcLog);
 el("logClose") && el("logClose").addEventListener("click",()=>{ el("logOverlay").style.display="none"; });
