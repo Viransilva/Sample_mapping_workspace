@@ -116,6 +116,15 @@
   html[data-theme="dark"] .theme-toggle .ic-sun{display:none}
   html[data-theme="dark"] .theme-toggle .ic-moon{display:block}
   .foot-note{font-size:10.5px;color:#5f6884}
+  .foot-user{display:flex;align-items:center;gap:10px;margin:10px 0 4px;padding:9px 11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:11px}
+  .fu-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4ea1e0,#2b88d8);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px;flex:none}
+  .fu-body{flex:1;min-width:0}
+  .fu-name{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fu-sub{font-size:10px;color:var(--nav-ink);margin-top:1px;cursor:pointer}
+  .fu-sub:hover{color:#fff;text-decoration:underline;text-underline-offset:2px}
+  .fu-logout{width:30px;height:30px;border-radius:8px;border:none;background:rgba(255,255,255,.08);color:var(--nav-ink);cursor:pointer;display:grid;place-items:center;flex:none;transition:.14s}
+  .fu-logout:hover{background:var(--del);color:#fff}
+  .fu-logout svg{width:15px;height:15px}
   @media(max-width:820px){.theme-toggle .tt-lbl{display:none}.theme-toggle{justify-content:center}}
 
   /* main */
@@ -325,6 +334,11 @@
   .colfilter-wrap.active input{color:var(--accent);font-weight:600}
   .cf-drop{border:none;background:none;color:var(--muted);cursor:pointer;padding:0 1px;flex:none;display:grid;place-items:center;border-radius:4px;transition:.13s}
   .cf-drop:hover{color:var(--accent);background:var(--accent-soft)}
+  /* resizable column handle */
+  .col-resize{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize;z-index:4;user-select:none}
+  .col-resize:hover{background:linear-gradient(90deg,transparent,var(--accent-3))}
+  table.resizing{cursor:col-resize;user-select:none}
+  table.resizing td,table.resizing th{user-select:none}
   .colfilter-wrap.active .cf-drop{color:var(--accent)}
   /* Excel-style filter dropdown */
   .xlf{position:fixed;z-index:200;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-lg);display:flex;flex-direction:column;max-height:330px;overflow:hidden;animation:cmdkPop .14s ease}
@@ -376,6 +390,9 @@
   tbody td:not(.actcell):not(:has(.cell-in)){padding:7px 12px}
   .cell-in{width:100%;min-width:80px;border:none;background:none;font:inherit;font-size:13px;color:var(--ink);padding:7px 12px;outline:none;transition:.12s;white-space:nowrap}
   .cell-in:focus{background:var(--panel);box-shadow:inset 0 0 0 2px var(--accent);border-radius:4px}
+  .editcell{cursor:text;padding:7px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;transition:background .1s}
+  .editcell:hover{background:var(--accent-soft)}
+  .editcell input{width:100%;box-sizing:border-box;border:none;background:var(--panel);font:inherit;font-size:inherit;color:var(--ink);padding:5px 8px;outline:none;box-shadow:inset 0 0 0 2px var(--accent);border-radius:4px}
   .ro td{padding:7px 12px;white-space:nowrap}
   td.actcell{text-align:right;padding-right:10px;white-space:nowrap}
   /* modern rounded table container */
@@ -884,6 +901,13 @@
         <svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
         <span class="tt-lbl">Dark mode</span>
       </button>
+      <div class="foot-user" id="footUser" style="display:none">
+        <div class="fu-avatar" id="fuAvatar">?</div>
+        <div class="fu-body"><div class="fu-name" id="fuName">—</div><div class="fu-sub" id="fuActivity" title="View login activity">Shared workspace · Activity</div></div>
+        <button class="fu-logout" id="logoutBtn" title="Log out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
       <div class="foot-note">Runs locally · files stay on your machine</div>
     </div>
   </nav>
@@ -1068,7 +1092,6 @@
           <label class="out-toggle" title="Only rows with a validation warning"><input type="checkbox" id="outFIssues"> Issues only</label>
           <div style="flex:1"></div>
           <span class="count" id="outCount"></span>
-          <button class="btn" id="outFit" title="Fit columns to width">Fit columns</button>
           <button class="btn" id="outDensity" title="Toggle row density">Compact</button>
           <button class="btn solid" id="dlOut">Download .xlsx</button>
         </div>
@@ -1375,6 +1398,21 @@
     </div>
   </div>
 </div>
+<div class="cmdk-overlay" id="actOverlay" style="display:none">
+  <div class="cmdk logmodal">
+    <div class="cd-head">
+      <div><div class="cd-title">Login activity</div><div class="cd-sub" id="actSub">Who signed in / out, and when.</div></div>
+      <button class="tour-skip" id="actClose">Close</button>
+    </div>
+    <div class="bar" style="padding:12px 22px;border-bottom:1px solid var(--line);margin:0">
+      <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input id="actSearch" placeholder="Search user…"></label>
+      <div style="flex:1"></div>
+      <button class="btn" id="actRefresh">Refresh</button>
+      <button class="btn solid" id="actDownload">Download .xlsx</button>
+    </div>
+    <div class="log-body" id="actBody"><div class="empty" style="padding:30px">Loading…</div></div>
+  </div>
+</div>
 <div class="cmdk-overlay" id="logOverlay" style="display:none">
   <div class="cmdk logmodal">
     <div class="cd-head">
@@ -1663,6 +1701,25 @@ async function loadChangeLog(limit){
     return {rows: await r.json()};
   }catch(e){ return {error:e.message||"network"}; }
 }
+/* ---- User activity log (login / logout), shared in Supabase ---- */
+async function logActivity(action, nameOverride){
+  try{
+    const name=(nameOverride||cloudUser());
+    const record={ ts:new Date().toISOString(), user_name:name, action };
+    await fetch(`${CLOUD.url}/rest/v1/user_activity`, {
+      method:"POST",
+      headers:{...cloudHeaders(), "Prefer":"return=minimal"},
+      body:JSON.stringify(record)
+    });
+  }catch(e){}
+}
+async function loadActivity(limit){
+  try{
+    const r=await fetch(`${CLOUD.url}/rest/v1/user_activity?order=ts.desc&limit=${limit||300}`, {headers:cloudHeaders()});
+    if(!r.ok) return {error:`HTTP ${r.status}`};
+    return {rows: await r.json()};
+  }catch(e){ return {error:e.message||"network"}; }
+}
 function buildSnapshot(){
   return {
     v:1, ts:Date.now(),
@@ -1675,16 +1732,16 @@ function buildSnapshot(){
   };
 }
 function applySnapshot(snap){
-  if(!snap || !snap.buy) return false;
+  if(!snap) return false;
   try{
-    S.buy=snap.buy; S.proc=snap.proc||null; S.merchants=snap.merchants||[];
+    S.buy=snap.buy||null; S.proc=snap.proc||null; S.merchants=snap.merchants||[];
     S.selected=new Set(snap.selected||[]); S.output=snap.output||null;
-    if(typeof S.addSamples!=="undefined" && snap.addSamples) S.addSamples=snap.addSamples;
+    if(typeof S.addSamples!=="undefined") S.addSamples=snap.addSamples||[];
     if("sorRows" in snap) S.sorRows=snap.sorRows||null;
     if("sorOutput" in snap) S.sorOutput=snap.sorOutput||null;
     if(snap.maps){ Object.keys(snap.maps).forEach(k=>{ if(MAPS[k]) MAPS[k].rows=snap.maps[k].rows; }); }
     if(snap.lp){ Object.keys(LP).forEach(k=>{ if(k in snap.lp) LP[k]=snap.lp[k]; }); }
-    return true;
+    return true;   // applied (even if empty) — an explicit clear is a valid state
   }catch(e){ return false; }
 }
 // push current session to the shared cloud (debounced)
@@ -1704,7 +1761,7 @@ async function cloudInit(){
   if(saved){
     CLOUD.ok=true;
     const nm=(Store.get("cloudUser","")||"").trim();
-    if(nm) greetUser(nm);
+    if(nm) { greetUser(nm); logActivity("login", nm); }
     await cloudPullAndApply(true);
     return;
   }
@@ -1741,6 +1798,11 @@ function reflectRestoredUI(){
     const bn=document.getElementById("buyName"); if(bn) bn.textContent="shared · "+S.buy.length+" rows";
     const sb=document.getElementById("stBuy"); if(sb){ sb.classList.add("done"); const v=sb.querySelector(".uc-val"); if(v) v.textContent=S.buy.length+" rows"; }
     const nb=document.getElementById("navBuy"); if(nb) nb.classList.remove("disabled"); const db=document.getElementById("dotBuy"); if(db) db.style.display=""; const brm=document.getElementById("buyRemove"); if(brm) brm.style.display="";
+  } else {
+    const d=document.getElementById("dropBuy"); if(d) d.classList.remove("set");
+    const bn=document.getElementById("buyName"); if(bn) bn.textContent="";
+    const sb=document.getElementById("stBuy"); if(sb){ sb.classList.remove("done"); const v=sb.querySelector(".uc-val"); if(v) v.textContent="Not loaded"; }
+    const nb=document.getElementById("navBuy"); if(nb) nb.classList.add("disabled"); const db=document.getElementById("dotBuy"); if(db) db.style.display="none"; const brm=document.getElementById("buyRemove"); if(brm) brm.style.display="none";
   }
   if(S.proc){
     const d=document.getElementById("dropProc"); if(d) d.classList.add("set");
@@ -1748,14 +1810,22 @@ function reflectRestoredUI(){
     const sp=document.getElementById("stProc"); if(sp){ sp.classList.add("done"); const v=sp.querySelector(".uc-val"); if(v) v.textContent=S.proc.length+" rows"; }
     const np=document.getElementById("navProc"); if(np) np.classList.remove("disabled"); const dp=document.getElementById("dotProc"); if(dp) dp.style.display=""; const prm=document.getElementById("procRemove"); if(prm) prm.style.display="";
     try{ buildMerchants(); }catch(e){}
+  } else {
+    const d=document.getElementById("dropProc"); if(d) d.classList.remove("set");
+    const pn=document.getElementById("procName"); if(pn) pn.textContent="";
+    const sp=document.getElementById("stProc"); if(sp){ sp.classList.remove("done"); const v=sp.querySelector(".uc-val"); if(v) v.textContent="Not loaded"; }
+    const np=document.getElementById("navProc"); if(np) np.classList.add("disabled"); const dp=document.getElementById("dotProc"); if(dp) dp.style.display="none"; const prm=document.getElementById("procRemove"); if(prm) prm.style.display="none";
+    const ms=document.getElementById("merchant"); if(ms){ ms.innerHTML='<option>Load Buy Processing first…</option>'; ms.disabled=true; }
   }
   try{ renderCats(); refreshRun(); updateUploadSummary&&updateUploadSummary(); updateDestBadge&&updateDestBadge(); }catch(e){}
-  if(S.output && S.output.rows && S.output.rows.length){ const nb=document.getElementById("navOutCt"); if(nb){ nb.style.display=""; nb.textContent=S.output.rows.length; } }
+  const oc=document.getElementById("navOutCt");
+  if(S.output && S.output.rows && S.output.rows.length){ if(oc){ oc.style.display=""; oc.textContent=S.output.rows.length; } }
+  else if(oc){ oc.style.display="none"; }
   const cur=document.querySelector(".view.on"); if(cur){ const v=cur.id.replace("v-",""); try{ go(v); }catch(e){} }
 }
 async function restoreSession(){
   const snap=await SessionDB.load();
-  if(!snap || !snap.buy) return false;
+  if(!snap) return false;
   return applySnapshot(snap);
 }
 
@@ -2814,6 +2884,36 @@ el("runBtn").addEventListener("click",()=>{
 });
 
 /* ===================================================================
+   RESIZABLE COLUMNS — drag the right edge of any header cell to resize.
+   Call makeResizable(tableEl) after rendering the header.
+   =================================================================== */
+function makeResizable(table){
+  if(!table) return;
+  const headRow=table.querySelector("thead tr");
+  if(!headRow) return;
+  headRow.querySelectorAll("th").forEach(th=>{
+    if(th.querySelector(".col-resize")) return;   // already has a handle
+    const grip=document.createElement("span");
+    grip.className="col-resize";
+    th.style.position="relative";
+    th.appendChild(grip);
+    grip.addEventListener("mousedown",e=>{
+      e.preventDefault(); e.stopPropagation();
+      const startX=e.pageX;
+      const startW=th.getBoundingClientRect().width;
+      table.classList.add("resizing");
+      const move=ev=>{
+        const w=Math.max(48, startW+(ev.pageX-startX));
+        th.style.width=w+"px"; th.style.minWidth=w+"px"; th.style.maxWidth=w+"px";
+      };
+      const up=()=>{ document.removeEventListener("mousemove",move); document.removeEventListener("mouseup",up); table.classList.remove("resizing"); };
+      document.addEventListener("mousemove",move); document.addEventListener("mouseup",up);
+    });
+    grip.addEventListener("click",e=>e.stopPropagation());   // don't trigger sort
+  });
+}
+
+/* ===================================================================
    EXCEL-STYLE FILTER DROPDOWN (distinct-value checkboxes) — shared by all tables.
    Opened from a funnel button in each column's filter cell. Selecting values
    writes an exact-match OR filter string that the existing filters honor via
@@ -3147,6 +3247,7 @@ function renderMap(){
   if(!shown) tb.innerHTML=`<tr><td colspan="${tab.cols.length+2+extraCol}"><div class="empty">${f?"No rows match “"+mapFilter+"”.":"No rows. Use Add row."}</div></td></tr>`;
   el("mapCount").innerHTML=((f||activeCols.length)?`${shown} of ${tab.rows.length} shown`:`${tab.rows.length} rows`)
     + (validate&&missing? ` · <span style="color:var(--del)">${missing} not in Buy File</span>` : (validate? ` · <span style="color:var(--ok)">all match Buy File</span>`:""));
+  makeResizable(el("mapTbl"));
   // active-filter chip bar
   const chips=el("mapChips");
   if(chips){
@@ -3354,6 +3455,7 @@ function renderOutput(){
     tb.appendChild(tr);
   }
   const outCap = list.length>500 ? " (showing first 500)" : "";
+  makeResizable(el("outTbl"));
   el("outCount").textContent = (f||outQF.order!=="__ALL__"||outQF.merch!=="__ALL__"||outQF.issues||outActiveCols.length)
     ? `${list.length.toLocaleString()} of ${rows.length.toLocaleString()}${outCap}` : `${rows.length.toLocaleString()} rows`;
 
@@ -3371,10 +3473,6 @@ el("outSearch").addEventListener("input",e=>{outFilter=e.target.value;renderOutp
 el("outFOrder") && el("outFOrder").addEventListener("change",e=>{outQF.order=e.target.value;renderOutput();});
 el("outFMerch") && el("outFMerch").addEventListener("change",e=>{outQF.merch=e.target.value;renderOutput();});
 el("outFIssues") && el("outFIssues").addEventListener("change",e=>{outQF.issues=e.target.checked;renderOutput();});
-el("outFit") && el("outFit").addEventListener("click",()=>{
-  const t=el("outTbl"), on=t.classList.toggle("fitcols");
-  el("outFit").classList.toggle("solid",on); el("outFit").textContent=on?"Natural width":"Fit columns";
-});
 el("outDensity") && el("outDensity").addEventListener("click",()=>{
   outDense=!outDense; el("outTbl").classList.toggle("dense",outDense);
   el("outDensity").textContent=outDense?"Comfortable":"Compact";
@@ -4192,7 +4290,8 @@ function renderGrid(rows, headEl, bodyEl, countEl, filterText, colFilter, onlyCo
       if(editable && !isComp(h)){
         const cellKey=i+":"+ci;
         const cls = buyDirtyCells.has(cellKey)?" cell-dirty":(buySavedCells.has(cellKey)?" cell-saved":"");
-        cells+=`<td class="cellwrap${cls}"><input class="cell-in" data-bidx="${i}" data-bcol="${ci}" value="${d.replace(/"/g,'&quot;')}"></td>`;
+        // lightweight: plain editable cell (no <input> until clicked) — huge perf win at 500×N cells
+        cells+=`<td class="editcell${cls}" data-bidx="${i}" data-bcol="${ci}" title="${d.replace(/"/g,'&quot;')}">${d||"&nbsp;"}</td>`;
       } else {
         cells+=`<td${isComp(h)?' class="comp-cell"':''} title="${d.replace(/"/g,'&quot;')}">${d}</td>`;
       }
@@ -4200,6 +4299,7 @@ function renderGrid(rows, headEl, bodyEl, countEl, filterText, colFilter, onlyCo
     tr.innerHTML=cells; frag.appendChild(tr);
   }
   bodyEl.innerHTML=""; bodyEl.appendChild(frag);
+  makeResizable(bodyEl.closest("table"));
   const capNote = matched>500 ? ` (showing first 500)` : "";
   countEl.textContent=(f||activeCols.length)?`${matched.toLocaleString()} of ${rows.length.toLocaleString()}${capNote}`:`${rows.length.toLocaleString()} rows`;
   // per-column filter inputs
@@ -4222,23 +4322,32 @@ function renderGrid(rows, headEl, bodyEl, countEl, filterText, colFilter, onlyCo
     const vals=distinctVals(rows, r=>dispCell(r[col],col));
     openXlf(btn, vals, colF[col]||"", fstr=>{ if(fstr==="") delete colF[col]; else colF[col]=fstr; (headEl===el("buyHead"))?renderBuy():renderProc(); });
   }));
-  if(editable){
-    bodyEl.querySelectorAll(".cell-in").forEach(inp=>{
-      inp.addEventListener("change",e=>{
-        const idx=+e.target.dataset.bidx, ci=+e.target.dataset.bcol, h=allHeaders[ci];
-        let val=e.target.value;
-        const wasDate = !isCodeCol(h) && toDate(S.buy[idx][h])!==null;
-        if(wasDate){ const dt=parseDateInput(val); S.buy[idx][h]=dt; e.target.value=(dt instanceof Date)?fmtDate(dt):norm(dt); }
-        else S.buy[idx][h]= val===""?null:val;
-        const cellKey=idx+":"+ci;
-        buyDirty.add(idx); buyDirtyCells.add(cellKey);
-        buySaved.delete(idx); buySavedCells.delete(cellKey);
-        const td=e.target.closest("td"); if(td){ td.classList.add("cell-dirty"); td.classList.remove("cell-saved"); }
-        e.target.closest("tr").classList.add("dirty"); e.target.closest("tr").classList.remove("saved");
-        const sv=el("saveBuy"); if(sv) sv.disabled=false;
-      });
-    });
+  if(editable && !bodyEl._editWired){
+    bodyEl._editWired=true;
+    bodyEl.addEventListener("click",gridCellClick);
   }
+}
+function gridCellClick(e){
+  const td=e.target.closest("td.editcell"); if(!td || td.querySelector("input")) return;
+  const idx=+td.dataset.bidx, ci=+td.dataset.bcol;
+  const cur=td.textContent.trim();
+  td.innerHTML=`<input class="cell-in" value="${cur.replace(/"/g,'&quot;')}">`;
+  const inp=td.querySelector("input"); inp.focus(); inp.select();
+  const commit=()=>{
+    const h=Object.keys(S.buy[0])[ci];
+    let val=inp.value;
+    const wasDate = !isCodeCol(h) && toDate(S.buy[idx][h])!==null;
+    if(wasDate){ const dt=parseDateInput(val); S.buy[idx][h]=dt; val=(dt instanceof Date)?fmtDate(dt):norm(dt); }
+    else S.buy[idx][h]= val===""?null:val;
+    const cellKey=idx+":"+ci;
+    buyDirty.add(idx); buyDirtyCells.add(cellKey); buySaved.delete(idx); buySavedCells.delete(cellKey);
+    td.innerHTML=val||"&nbsp;"; td.classList.add("cell-dirty"); td.classList.remove("cell-saved");
+    td.closest("tr").classList.add("dirty"); td.closest("tr").classList.remove("saved");
+    const sv=el("saveBuy"); if(sv) sv.disabled=false;
+    saveSession && saveSession(); cloudSyncOut && cloudSyncOut("buyEdit");
+  };
+  inp.addEventListener("blur",commit);
+  inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); inp.blur(); } else if(ev.key==="Escape"){ td.innerHTML=cur||"&nbsp;"; } });
 }
 let buyFilter="";
 const buyColF={}, procColF={};
@@ -4454,11 +4563,12 @@ function renderProc(){
       const disp = dispCell(row[h],h);
       const cellKey=origIdx+":"+ci;
       const cls = procDirtyCells.has(cellKey)?" cell-dirty":(procSavedCells.has(cellKey)?" cell-saved":"");
-      cells+=`<td class="cellwrap${cls}"><input class="cell-in" data-idx="${origIdx}" data-col="${ci}" value="${disp.replace(/"/g,'&quot;')}"></td>`;
+      cells+=`<td class="editcell${cls}" data-idx="${origIdx}" data-col="${ci}" title="${disp.replace(/"/g,'&quot;')}">${disp||"&nbsp;"}</td>`;
     });
     tr.innerHTML=cells; frag.appendChild(tr);
   }
   tb.appendChild(frag);
+  makeResizable(el("procTbl"));
   if(!shown){ tb.innerHTML=`<tr><td colspan="${headers.length+2}"><div class="empty">No rows${f?" match “"+procFilter+"”":""}.</div></td></tr>`; }
   el("procCount").textContent=(f||pActive.length)?`${matched.toLocaleString()} of ${indexed.length.toLocaleString()}${matched>500?" (showing first 500)":""}`:`${indexed.length.toLocaleString()} rows`;
   // per-column filter inputs
@@ -4480,31 +4590,35 @@ function renderProc(){
     openXlf(btn, vals, procColF[ci]||"", fstr=>{ if(fstr==="") delete procColF[ci]; else procColF[ci]=fstr; renderProc(); });
   }));
 
-  tb.querySelectorAll(".cell-in").forEach(inp=>{
-    inp.addEventListener("focus",e=>{ e.target.dataset.old = e.target.value; });
-    inp.addEventListener("change",e=>{
-      const idx=+e.target.dataset.idx, ci=+e.target.dataset.col, h=headers[ci];
-      let val=e.target.value;
-      const oldVal = e.target.dataset.old!==undefined ? e.target.dataset.old : "";
-      const wasDate = !isCodeCol(h) && (toDate(S.proc[idx][h])!==null || isHodCol(h));
-      if(wasDate){ const d=parseDateInput(val); S.proc[idx][h]= d; e.target.value = (d instanceof Date)? fmtDate(d): norm(d); }
-      else S.proc[idx][h]= val===""?null:val;
-      const newVal=e.target.value;
-      if(norm(oldVal)!==norm(newVal)){
-        // key row by Style+Colour+Option so the log is meaningful
-        const row=S.proc[idx];
-        const rowKey=norm(pick(row,["Style+Option"]))||`${norm(pick(row,["Style No"]))}-${norm(pick(row,["Colour Code"]))}`;
-        procPendingEdits.push({ row:rowKey, column:norm(h).replace(/<br>/g," ").trim(), from:oldVal, to:newVal });
-      }
-      const cellKey=idx+":"+ci;
-      procDirty.add(idx); procDirtyCells.add(cellKey);
-      procSaved.delete(idx); procSavedCells.delete(cellKey);  // editing again clears the green
-      const td=e.target.closest("td"); if(td){ td.classList.add("cell-dirty"); td.classList.remove("cell-saved"); }
-      e.target.closest("tr").classList.add("dirty"); e.target.closest("tr").classList.remove("saved");
-      updateProcDirty();
-    });
-  });
+  if(!tb._editWired){ tb._editWired=true; tb.addEventListener("click",procCellClick); }
   updateProcDirty();
+}
+function procCellClick(e){
+  const td=e.target.closest("td.editcell"); if(!td || td.querySelector("input")) return;
+  const idx=+td.dataset.idx, ci=+td.dataset.col;
+  const headers=Object.keys(S.proc[0]); const h=headers[ci];
+  const cur=td.textContent.trim();
+  td.innerHTML=`<input class="cell-in" value="${cur.replace(/"/g,'&quot;')}">`;
+  const inp=td.querySelector("input"); inp.focus(); inp.select();
+  const oldVal=cur;
+  const commit=()=>{
+    let val=inp.value;
+    const wasDate = !isCodeCol(h) && (toDate(S.proc[idx][h])!==null || isHodCol(h));
+    if(wasDate){ const d=parseDateInput(val); S.proc[idx][h]=d; val=(d instanceof Date)?fmtDate(d):norm(d); }
+    else S.proc[idx][h]= val===""?null:val;
+    if(norm(oldVal)!==norm(val)){
+      const row=S.proc[idx];
+      const rowKey=norm(pick(row,["Style+Option"]))||`${norm(pick(row,["Style No"]))}-${norm(pick(row,["Colour Code"]))}`;
+      procPendingEdits.push({ row:rowKey, column:norm(h).replace(/<br>/g," ").trim(), from:oldVal, to:val });
+    }
+    const cellKey=idx+":"+ci;
+    procDirty.add(idx); procDirtyCells.add(cellKey); procSaved.delete(idx); procSavedCells.delete(cellKey);
+    td.innerHTML=val||"&nbsp;"; td.classList.add("cell-dirty"); td.classList.remove("cell-saved");
+    td.closest("tr").classList.add("dirty"); td.closest("tr").classList.remove("saved");
+    updateProcDirty();
+  };
+  inp.addEventListener("blur",commit);
+  inp.addEventListener("keydown",ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); inp.blur(); } else if(ev.key==="Escape"){ td.innerHTML=cur||"&nbsp;"; } });
 }
 function updateProcDirty(){
   const n=procDirty.size; const pd=el("pDirty");
@@ -4592,6 +4706,43 @@ el("logDownload") && el("logDownload").addEventListener("click",()=>{
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Change Log");
   saveStyledWorkbook(wb,"Buy_Processing_ChangeLog_"+new Date().toISOString().slice(0,10)+".xlsx");
   flash("Change log downloaded.");
+});
+
+/* ---- Login activity viewer ---- */
+let _actCache=[];
+async function openActivity(){
+  el("actOverlay").style.display="flex";
+  el("actBody").innerHTML=`<div class="empty" style="padding:30px">Loading…</div>`;
+  if(!CLOUD.ok){ el("actBody").innerHTML=`<div class="empty" style="padding:30px">Sign in to the shared workspace to see login activity.</div>`; return; }
+  const res=await loadActivity(300);
+  if(res.error){ el("actBody").innerHTML=`<div class="empty" style="padding:30px;color:var(--del)">Couldn't load: ${escapeHtml(res.error)}</div>`; return; }
+  _actCache=res.rows||[];
+  el("actSub").textContent=`${_actCache.length} recent event${_actCache.length===1?"":"s"} · all users`;
+  renderActBody("");
+}
+function renderActBody(q){
+  q=(q||"").trim().toLowerCase();
+  const items=_actCache.filter(r=>!q||(norm(r.user_name)+" "+norm(r.action)).toLowerCase().includes(q));
+  if(!items.length){ el("actBody").innerHTML=`<div class="empty" style="padding:30px">No matching activity.</div>`; return; }
+  el("actBody").innerHTML=items.map(r=>{
+    const badge=r.action==="login"?"in":"out";
+    const bl={in:"Login",out:"Logout"}[badge];
+    return `<div class="log-item"><div class="log-item-head"><span class="log-badge ${badge==="in"?"up":"rm"}">${bl}</span><span class="log-user">${escapeHtml(r.user_name||"unknown")}</span><span class="log-ts">${fmtLogTs(r.ts)}</span></div></div>`;
+  }).join("");
+}
+el("fuActivity") && el("fuActivity").addEventListener("click",openActivity);
+el("actClose") && el("actClose").addEventListener("click",()=>{ el("actOverlay").style.display="none"; });
+el("actOverlay") && el("actOverlay").addEventListener("click",e=>{ if(e.target===el("actOverlay")) el("actOverlay").style.display="none"; });
+el("actRefresh") && el("actRefresh").addEventListener("click",openActivity);
+el("actSearch") && el("actSearch").addEventListener("input",e=>renderActBody(e.target.value));
+el("actDownload") && el("actDownload").addEventListener("click",()=>{
+  if(!_actCache.length){ flash("Nothing to download."); return; }
+  const aoa=[["When","User","Action"]];
+  _actCache.forEach(r=>aoa.push([ fmtLogTs(r.ts), r.user_name||"", r.action||"" ]));
+  const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[{wch:22},{wch:18},{wch:10}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Login Activity");
+  saveStyledWorkbook(wb,"Login_Activity_"+new Date().toISOString().slice(0,10)+".xlsx");
+  flash("Activity downloaded.");
 });
 
 /* ---- Update GB Testing column in Buy Processing ----
@@ -5896,6 +6047,7 @@ el("cgEnter") && el("cgEnter").addEventListener("click",async()=>{
   try{ Store.set("cloudUnlocked",true); }catch(_){}
   CLOUD.ok=true;
   el("cloudGate").style.display="none";
+  logActivity("login", name);   // record login (user + time) in Supabase
   greetUser(name);
   await cloudPullAndApply(false);
 });
@@ -5903,9 +6055,25 @@ function greetUser(name){
   const first=(name||"").trim().split(/\s+/)[0]||name;
   flash(`Hi ${first} 👋 — welcome back.`);
   const sm=el("smsg"); if(sm) sm.textContent=`Signed in as ${name}. Ready.`;
+  showFootUser(name);
   // first-run guided tour — after login, once per user
   try{ if(!Store.get("tourDone",false)){ setTimeout(()=>{ try{ startTour(); }catch(e){} }, 800); } }catch(e){}
 }
+function showFootUser(name){
+  const box=el("footUser"); if(!box) return;
+  box.style.display="";
+  const n=(name||"").trim()||"User";
+  el("fuName").textContent=n;
+  el("fuAvatar").textContent=(n[0]||"?").toUpperCase();
+}
+function doLogout(){
+  if(!confirm("Log out of the shared workspace? Your uploaded data stays saved in the shared workspace — you'll just need the passcode to sign back in.")) return;
+  logActivity("logout");        // record logout (user + time)
+  try{ Store.set("cloudUnlocked",false); }catch(_){}
+  // small delay so the logout POST fires before reload
+  setTimeout(()=>location.reload(), 250);
+}
+el("logoutBtn") && el("logoutBtn").addEventListener("click",doLogout);
 el("cgSkip") && el("cgSkip").addEventListener("click",async()=>{
   el("cloudGate").style.display="none";
   setCloudStatus("offline");
