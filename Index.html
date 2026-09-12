@@ -5113,7 +5113,7 @@ function renderGuide(){
       <li><b>HOD Priority</b> — the colour whose own earliest HOD equals the style's 1st HOD is flagged <b>"1"</b> (the priority colourway); if two colours tie, the lower colour code wins. Several categories (PE, PPZ, GB) only run for the Priority-1 colour.</li>
       <li><b>Req HOD</b> = the style's 1st HOD minus <b>${lp("hodMinusDays")} days</b> for every category except GB Testing, which uses <b>${lp("hodMinusDaysGB")} days</b>. This is the date the sample is required at head office.</li>
       <li><b>Req In DC</b> = Req HOD plus <b>${lp("reqInDcPlusDays")} days</b> — when the sample is required in the distribution centre.</li>
-      <li><b>Base Size</b> — set at <b>style level</b> in the Base Sizes mapping (one base size per style, the same across all its colours). A Buy File row is treated as the "base-size row" when its Size Code equals the style's base size. Most categories build their sample on this row.</li>
+      <li><b>Base Size</b> — set at <b>style level</b> in the Base Sizes mapping (same across all colours of a style). A style can have <b>one or two base sizes</b> (two entered comma-separated, e.g. "M,L"). A Buy File row is treated as a "base-size row" when its Size Code matches a base size. Top Sample builds a sample for each base size; other categories use the first (primary) one.</li>
       <li><b>Ship mode</b> — each category has a fixed ship mode (ROAD or COURIER) shown on its card below.</li>
     </ul>
     <div class="gd-eg"><span class="gd-eg-tag">Example</span> A style's earliest colour HOD is 11/09 → 1st HOD = 11/09. Standard categories: Req HOD = 10/26 (−${lp("hodMinusDays")}), Req In DC = 11/25 (+${lp("reqInDcPlusDays")}). GB Testing: Req HOD = 10/19 (−${lp("hodMinusDaysGB")}), Req In DC = 11/18.</div>
@@ -5140,7 +5140,7 @@ function renderGuide(){
     <h3 class="gd-h2">6 · Add Sample &amp; Logic panel</h3>
     <ul class="gd-list">
       <li><b>Add Sample</b> — Merchant → Style → Colour → Size (all from the Buy File), Channel limited to that style+colour's channels, Order Type and QTY. The row is appended to the Output.</li>
-      <li><b>Logic &amp; Rules</b> — edit day offsets, quantities, and Men's Bottom prefixes live, then re-run. The reference cards show each category's full rule with worked examples and its ship mode.</li>
+      <li><b>Logic &amp; Rules</b> — edit day offsets, quantities, and shipment style prefixes live, then re-run. The reference cards show each category's full rule with worked examples and its ship mode.</li>
     </ul>
     <p class="gd-note">Editable values above reflect your current Logic &amp; Rules settings. Download the PDF for a formatted copy.</p>`;
   // category rows reuse the same reference data as the Logic panel — show full detail
@@ -5947,7 +5947,7 @@ const TEMPLATES=[
    {
     "h": "Product Category",
     "role": "logic",
-    "note": "Mens Bottom -> single row; else base + down-size."
+    "note": "LM9/LM7/LM3 → single base-size row (QTY 3); LM5 → base + fixed down-size 32; others → base + laddered down-size."
    }
   ],
   "rows": [
@@ -5966,8 +5966,20 @@ const TEMPLATES=[
    [
     "LM5AO4S134",
     "34",
+    "1",
+    "Men's Pants"
+   ],
+   [
+    "LM5AO4S132",
+    "32",
+    "2",
+    "Men's Pants"
+   ],
+   [
+    "LM9DC3S18",
+    "8",
     "3",
-    "Men's Bottom"
+    "Men's (single row)"
    ]
   ]
  },
