@@ -2476,16 +2476,23 @@ const LP = {
   qtyPE_other: 3,         // PE non-base QTY
   qtyPP: 5,               // PP Sample QTY
   qtyPPZ: 30,             // PPZ Sample QTY
-  qtyBV_hod1: 11,         // BV QTY when HOD Priority = 1
+  qtyBV_hod1: 6,          // BV QTY when HOD Priority = 1
   qtyBV_other: 5,         // BV QTY otherwise
   qtyGB: 5,               // GB Testing QTY
-  mensBottomPrefixes: "LM5, LM9",   // style prefixes classed as Men's Bottom
-  mensBottomQty: 3,       // Men's Bottom single-row shipment QTY
-  shipBaseQty: 1,         // Shipment base-size QTY (non-Men's)
-  shipDownQty: 2,         // Shipment down-size QTY (non-Men's)
+  shipSingleRowPrefixes: "LM9, LM7, LM3",   // single-row shipment: base size only, QTY 3 (Men's Underwear/Shorts/Tops)
+  shipSingleRowQty: 3,    // QTY for single-row shipment prefixes
+  shipPantsPrefixes: "LM5",  // Men's Pants: 2 rows — base QTY 1 + down-size (32) QTY 2
+  shipPantsDownSize: "32",   // Men's Pants forced down-size
+  mensBottomPrefixes: "LM5, LM9",   // (legacy — no longer used by shipment; kept for compatibility)
+  mensBottomQty: 3,       // (legacy)
+  shipBaseQty: 1,         // Shipment base-size QTY (default two-row)
+  shipDownQty: 2,         // Shipment down-size QTY (default two-row)
   size34Down: "32",       // size 34 steps down to this
 };
-function mensBottomSet(){ return new Set(LP.mensBottomPrefixes.split(",").map(s=>s.trim().toUpperCase()).filter(Boolean)); }
+function prefixSet(str){ return new Set(norm(str).split(",").map(s=>s.trim().toUpperCase()).filter(Boolean)); }
+function shipSingleSet(){ return prefixSet(LP.shipSingleRowPrefixes); }
+function shipPantsSet(){ return prefixSet(LP.shipPantsPrefixes); }
+function mensBottomSet(){ return new Set(norm(LP.mensBottomPrefixes).split(",").map(s=>s.trim().toUpperCase()).filter(Boolean)); }
 
 function renderCats(){
   const w=el("cats"); w.innerHTML="";
@@ -2625,6 +2632,16 @@ function baseSizeSampleBuilder({procRows,ctx,log}, opts){
     const bf=buyFirst.get(key);
     let sizes=sizesByKey.get(key);
     if(!sizes||!sizes.size){ noSize++; return; }
+    if(opts.primaryBaseOnly && sizes.size>1){
+      // style has 2 base sizes but this category uses only the primary (first mapped) one
+      const styleBases=(typeof _baseOrderByStyle!=="undefined") ? _baseOrderByStyle.get(kSize(styleNo)) : null;
+      let primary=null;
+      if(styleBases && styleBases.length){ primary=[...sizes].find(s=>kSize(s)===kSize(styleBases[0])); }
+      if(!primary){ // fallback: smallest on the ladder
+        const a=[...sizes]; a.sort((x,y)=>{const ix=SIZE_LADDER.indexOf(norm(x).trim()),iy=SIZE_LADDER.indexOf(norm(y).trim());return (ix<0?9999:ix)-(iy<0?9999:iy);}); primary=a[0];
+      }
+      sizes=new Set([primary]);
+    }
     if(opts.smallestOnly){
       const a=[...sizes]; a.sort((x,y)=>{const ix=SIZE_LADDER.indexOf(norm(x).trim()),iy=SIZE_LADDER.indexOf(norm(y).trim());return (ix<0?9999:ix)-(iy<0?9999:iy);});
       sizes=new Set([a[0]]);
@@ -2897,7 +2914,7 @@ LOGIC.gb=function({procRows,ctx,log}){
   return out;
 };
 LOGIC.pilot=function(args){
-  return baseSizeSampleBuilder(args, {qualifyCol:"Pilot", qualifyValue:"Required", orderType:"Pilot", label:"Pilot", shipMode:"ROAD", fixedFactory:"INQUBE PRODUCTION ENGENEERING"});
+  return baseSizeSampleBuilder(args, {qualifyCol:"Pilot", qualifyValue:"Required", orderType:"Pilot", label:"Pilot", shipMode:"ROAD", fixedFactory:"INQUBE PRODUCTION ENGENEERING", primaryBaseOnly:true});
 };
 function washQty(p){
   const num=(name)=>{ const v=pick(p,[name]); if(v===null||v===undefined||norm(v).trim()==="") return null; const n=Number(v); return (isNaN(n)||n===0)?null:n; };
@@ -2906,7 +2923,7 @@ function washQty(p){
   return shifts*lines*run;
 }
 LOGIC.wash=function(args){
-  return baseSizeSampleBuilder(args, {qualifyCol:"Wash Sample", qualifyValue:"Required", orderType:"Wash Sample", label:"Wash Sample", shipMode:"ROAD", qtyFn:washQty});
+  return baseSizeSampleBuilder(args, {qualifyCol:"Wash Sample", qualifyValue:"Required", orderType:"Wash Sample", label:"Wash Sample", shipMode:"ROAD", qtyFn:washQty, primaryBaseOnly:true});
 };
 
 el("runBtn").addEventListener("click",()=>{
@@ -3012,6 +3029,25 @@ function xlfMatch(cellText, filterStr){
 let _xlfEl=null;
 function closeXlf(){ if(_xlfEl){ _xlfEl.remove(); _xlfEl=null; document.removeEventListener("mousedown",_xlfOutside,true); } }
 function _xlfOutside(e){ if(_xlfEl && !_xlfEl.contains(e.target) && !e.target.closest(".cf-drop")) closeXlf(); }
+/* labeled fixed-choice dropdown (e.g. In Buy File? = Yes/Not found/blank); onApply(pickedKeys[]) */
+function openXlfChoices(btn, keys, labels, current, onApply){
+  closeXlf();
+  const sel=new Set(current||keys.slice());
+  const box=document.createElement("div"); box.className="xlf"; _xlfEl=box;
+  box.innerHTML=`<div class="xlf-list"></div><div class="xlf-foot"><button class="btn xlf-cancel">Cancel</button><button class="btn solid xlf-ok">Apply</button></div>`;
+  document.body.appendChild(box);
+  const listEl=box.querySelector(".xlf-list");
+  function paint(){ listEl.innerHTML=keys.map(k=>`<label class="xlf-item"><input type="checkbox" value="${k}" ${sel.has(k)?"checked":""}><span>${escapeHtml(labels[k]||k)}</span></label>`).join("");
+    listEl.querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{ cb.checked?sel.add(cb.value):sel.delete(cb.value); })); }
+  paint();
+  box.querySelector(".xlf-cancel").addEventListener("click",closeXlf);
+  box.querySelector(".xlf-ok").addEventListener("click",()=>{ closeXlf(); onApply([...sel]); });
+  const r=btn.getBoundingClientRect(); const w=190;
+  let left=Math.min(r.left, window.innerWidth-w-8); let top=r.bottom+4;
+  if(top+180>window.innerHeight) top=Math.max(8, r.top-184);
+  box.style.left=left+"px"; box.style.top=top+"px"; box.style.width=w+"px";
+  setTimeout(()=>document.addEventListener("mousedown",_xlfOutside,true),0);
+}
 /* open dropdown anchored to btn; values=distinct list; current=current filter string; onApply(filterStringOrNull) */
 function openXlf(btn, values, current, onApply){
   closeXlf();
@@ -3108,26 +3144,35 @@ function generateShipSizes(){
   S.buy.forEach(r=>{ const sc=norm(r["Style + Color"]).toUpperCase(); if(sc&&!firstRow.has(sc)) firstRow.set(sc,r); });
   const rows=[];
   const seen=new Set();
-  const MB=mensBottomSet(); const prodCat=(styleNo)=>{ const p=norm(styleNo).slice(0,3).toUpperCase(); return MB.has(p)?"Men's Bottom":""; };
+  const singleSet=shipSingleSet(), pantsSet=shipPantsSet();
+  const catOf=(styleNo)=>{ const p=norm(styleNo).slice(0,3).toUpperCase();
+    if(singleSet.has(p)) return "single";      // LM9/LM7/LM3: 1 row base size, QTY 3
+    if(pantsSet.has(p))  return "pants";        // LM5: base QTY 1 + down-size 32 QTY 2
+    return "default"; };
+  const catLabel=(c)=>c==="single"?"Men's (single row)":c==="pants"?"Men's Pants":"";
   smallestBySC().forEach((sizes,sc)=>{
     const r=firstRow.get(sc); if(!r) return;
     const styleNo=norm(r["Style No"]), colour=norm(r["Colour Code"]);
     const base=ladderSmaller(sizes);
-    const down=downSizeToBase(base);     // ladder down-size (34 -> 32 exception inside)
-    const cat=prodCat(styleNo);
+    const cat=catOf(styleNo);
     const push=(sz,qty)=>{
       if(sz==null||norm(sz)==="") return;
       const keyStr=styleNo+colour+norm(sz);
       if(seen.has(keyStr.toUpperCase())) return;
       seen.add(keyStr.toUpperCase());
-      rows.push([keyStr, norm(sz), qty, cat]);
+      rows.push([keyStr, norm(sz), qty, catLabel(cat)]);
     };
-    if(cat==="Men's Bottom"){
-      // Men's Bottom: single base-size row at QTY 3 (no down-size row)
-      push(base,LP.mensBottomQty);
+    if(cat==="single"){
+      // LM9 / LM7 / LM3: single base-size row at QTY 3 (no down-size)
+      push(base, LP.shipSingleRowQty);
+    } else if(cat==="pants"){
+      // LM5: base size QTY 1 + fixed down-size (32) QTY 2  → total 3, 2 rows
+      push(base, LP.shipBaseQty);
+      push(LP.shipPantsDownSize, LP.shipDownQty);
     } else {
-      push(base,LP.shipBaseQty);
-      push(down,LP.shipDownQty);
+      // default: base QTY 1 + laddered down-size QTY 2
+      push(base, LP.shipBaseQty);
+      push(downSizeToBase(base), LP.shipDownQty);
     }
   });
   MAPS.shipsize.rows=rows;
@@ -3294,15 +3339,20 @@ function renderMap(){
   const colF=mapColFilters[mapActive];
   const th=el("mapHead"); th.innerHTML="";
   th.innerHTML=`<tr><th style="width:46px">#</th>${tab.cols.map(c=>`<th>${c}</th>`).join("")}${validate?`<th style="text-align:center">In Buy File?</th>`:""}<th class="act">Actions</th></tr>`
-    +`<tr class="filterrow"><th></th>${tab.cols.map((c,ci)=>{const act=norm(colF[ci]).trim()!==""; return `<th class="filter-th"><span class="colfilter-wrap${act?" active":""}"><button class="cf-drop" data-ci="${ci}" title="Filter values"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 4h18l-7 8v6l-4 2v-8z"/></svg></button><input class="colfilter" data-ci="${ci}" placeholder="Filter ${(c||"").replace(/"/g,'&quot;')}" value="${act&&!xlfDecode(colF[ci])?norm(colF[ci]).replace(/"/g,'&quot;'):""}">${act?`<button class="cf-clear" data-clear="${ci}" title="Clear">✕</button>`:""}</span></th>`}).join("")}${validate?`<th></th>`:""}<th></th></tr>`;
+    +`<tr class="filterrow"><th></th>${tab.cols.map((c,ci)=>{const act=norm(colF[ci]).trim()!==""; return `<th class="filter-th"><span class="colfilter-wrap${act?" active":""}"><button class="cf-drop" data-ci="${ci}" title="Filter values"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 4h18l-7 8v6l-4 2v-8z"/></svg></button><input class="colfilter" data-ci="${ci}" placeholder="Filter ${(c||"").replace(/"/g,'&quot;')}" value="${act&&!xlfDecode(colF[ci])?norm(colF[ci]).replace(/"/g,'&quot;'):""}">${act?`<button class="cf-clear" data-clear="${ci}" title="Clear">✕</button>`:""}</span></th>`}).join("")}${validate?`<th class="filter-th" style="text-align:center"><span class="colfilter-wrap${norm(colF._inbuy||"")!==""?" active":""}" style="justify-content:center"><button class="cf-drop" data-inbuy="1" title="Filter In Buy File">${norm(colF._inbuy||"")!==""?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 4h18l-7 8v6l-4 2v-8z"/></svg>`:`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 4h18l-7 8v6l-4 2v-8z"/></svg>`}</button>${norm(colF._inbuy||"")!==""?`<button class="cf-clear" data-clearinbuy="1" title="Clear">✕</button>`:""}</span></th>`:""}<th></th></tr>`;
   const tb=el("mapBody"); tb.innerHTML="";
   const f=mapFilter.trim().toLowerCase();
-  const activeCols=Object.keys(colF).filter(ci=>norm(colF[ci]).trim()!=="");
+  const activeCols=Object.keys(colF).filter(ci=>ci!=="_inbuy" && norm(colF[ci]).trim()!=="");
+  const inbuyFilter=norm(colF._inbuy||"").trim();   // "" | "yes" | "no" | "blank"
   let shown=0, missing=0;
   tab.rows.forEach((row,ri)=>{
     if(f&&!row.some(v=>norm(v).toLowerCase().includes(f)))return;
     // per-column AND filters
     if(activeCols.length && !activeCols.every(ci=>xlfMatch(dispCell(row[+ci], tab.cols[+ci]), colF[ci]))) return;
+    // In Buy File? filter
+    let inbuyStatus="blank";
+    if(validate){ const key=kSize(row[0]); inbuyStatus = key===""?"blank":(buyKeys.has(key)?"yes":"no"); }
+    if(inbuyFilter && inbuyStatus!==inbuyFilter) return;
     shown++; const id=mapActive+"#"+ri;
     const r=document.createElement("tr");
     if(mFresh.has(id))r.className="new"; else if(mDirty.has(id))r.className="dirty";
@@ -3329,11 +3379,13 @@ function renderMap(){
   if(chips){
     const parts=[];
     if(f) parts.push(`<span class="fchip"><span class="fchip-k">Search</span> ${escapeHtml(mapFilter.trim())}<button class="fchip-x" data-clearsearch="1">✕</button></span>`);
+    if(inbuyFilter){ const lbl={yes:"In Buy File",no:"Not found",blank:"No style"}[inbuyFilter]||inbuyFilter; parts.push(`<span class="fchip"><span class="fchip-k">In Buy File?</span> ${lbl}<button class="fchip-x" data-clearinbuychip="1">✕</button></span>`); }
     activeCols.forEach(ci=>parts.push(`<span class="fchip"><span class="fchip-k">${escapeHtml(tab.cols[+ci]||"Col")}</span> ${escapeHtml(norm(colF[ci]).trim())}<button class="fchip-x" data-clearchip="${ci}">✕</button></span>`));
     if(parts.length){
       chips.style.display="";
       chips.innerHTML=`<span class="fchip-lbl">Filters</span>${parts.join("")}<button class="fchip-clear" id="mapClearAll">Clear all</button>`;
       chips.querySelectorAll("[data-clearchip]").forEach(b=>b.onclick=()=>{ delete colF[b.dataset.clearchip]; renderMap(); });
+      const ci2=chips.querySelector("[data-clearinbuychip]"); if(ci2) ci2.onclick=()=>{ delete colF._inbuy; renderMap(); };
       const cs=chips.querySelector("[data-clearsearch]"); if(cs) cs.onclick=()=>{ mapFilter=""; el("mapSearch").value=""; renderMap(); };
       const ca=el("mapClearAll"); if(ca) ca.onclick=()=>{ mapFilter=""; el("mapSearch").value=""; Object.keys(colF).forEach(k=>delete colF[k]); renderMap(); };
     } else chips.style.display="none";
@@ -3357,8 +3409,23 @@ function renderMap(){
     e.preventDefault(); delete colF[btn.dataset.clear]; renderMap();
     const first=el("mapHead").querySelector(".colfilter"); if(first) first.focus();
   }));
+  th.querySelectorAll("[data-clearinbuy]").forEach(btn=>btn.addEventListener("click",e=>{
+    e.preventDefault(); e.stopPropagation(); delete colF._inbuy; renderMap();
+  }));
   th.querySelectorAll(".cf-drop").forEach(btn=>btn.addEventListener("click",e=>{
     e.preventDefault(); e.stopPropagation();
+    if(btn.dataset.inbuy){
+      // In Buy File? filter — fixed options
+      const labels={yes:"✓ In Buy File", no:"✗ Not found", blank:"— (no style)"};
+      const current = colF._inbuy ? [colF._inbuy] : ["yes","no","blank"];
+      openXlfChoices(btn, ["yes","no","blank"], labels, current, picked=>{
+        // picked is array of selected keys; if all or none → clear, if one → set
+        if(picked.length===0 || picked.length===3) delete colF._inbuy;
+        else colF._inbuy=picked[0];   // single-value filter
+        renderMap();
+      });
+      return;
+    }
     const ci=+btn.dataset.ci;
     const vals=distinctVals(tab.rows, r=>dispCell(r[ci], tab.cols[ci]));
     openXlf(btn, vals, colF[ci]||"", fstr=>{ if(fstr==="") delete colF[ci]; else colF[ci]=fstr; renderMap(); });
@@ -4446,6 +4513,7 @@ function k(v){ return norm(v).trim().toUpperCase(); }
    removes ALL whitespace and trailing ".0" on numeric chunks, uppercases.
    Handles real-file quirks like internal spaces or sizes stored as numbers. */
 function kSize(v){ return norm(v).replace(/\s+/g,"").replace(/\.0+(?=$|[^0-9])/g,"").toUpperCase(); }
+let _baseOrderByStyle=new Map();
 function buildLookups(){
   const D=MAPS.destination.rows, F=MAPS.factory.rows, B=MAPS.bvpriority.rows;
   const BS=(MAPS.basesize&&MAPS.basesize.rows)||[];
@@ -4454,7 +4522,10 @@ function buildLookups(){
   D.forEach(r=>{ if(r[0]!=null){ destSys.set(k(r[0]),r[1]); destPri.set(k(r[0]),r[2]); } if(r[2]!=null) priToDest.set(Number(r[2]), r[1]); });
   F.forEach(r=>{ if(r[0]!=null) facWfx.set(k(r[0]),r[1]); });
   B.forEach(r=>{ if(r[1]!=null) bvPri.set(k(r[1]),r[2]); if(r[2]!=null) bvPriToDest.set(Number(r[2]), r[1]); });   // BV keyed on System Destination
-  BS.forEach(r=>{ if(r[0]!=null&&norm(r[0])!=="") baseSize.set(kSize(r[0]), r[1]); });   // Style No -> Base Size (style-level)
+  BS.forEach(r=>{ if(r[0]!=null&&norm(r[0])!=="" && r[1]!=null && norm(r[1])!==""){ const key=kSize(r[0]); if(!baseSize.has(key)) baseSize.set(key,[]); const arr=baseSize.get(key);
+    // Base Size cell may hold 1 or 2 sizes separated by comma/slash (e.g. "M,L")
+    norm(r[1]).split(/[,/]/).map(s=>s.trim()).filter(Boolean).forEach(v=>{ if(!arr.some(x=>kSize(x)===kSize(v))) arr.push(v); }); } });   // Style No -> [Base Size, ...]
+  _baseOrderByStyle=baseSize;   // expose ordered base sizes for primary-only categories
   SS.forEach(r=>{ if(r[0]!=null&&norm(r[0])!=="") shipSize.set(kSize(r[0]), r[1]); });   // Style+Op+Size -> Shipment Size
   return {destSys,destPri,priToDest,facWfx,bvPri,bvPriToDest,baseSize,shipSize};
 }
@@ -4478,10 +4549,11 @@ function enrichBuy(){
     r["Destination Priority"]=dPri;
     r["Style+Color+Size"]=styleColor+norm(r["Size Code"]);
     r["Destination Priority (BV)"]=bvP;
-    // Base Sizes: style-level lookup. The style has ONE base size; a Buy File row is
-    // flagged as the base-size row when its Size Code equals the style's mapped base size.
-    const styleBase=L.baseSize.get(kSize(norm(r["Style No"])));
-    r["Base Sizes"]=(styleBase!=null&&styleBase!==""&&kSize(r["Size Code"])===kSize(styleBase))?styleBase:"";
+    // Base Sizes: style-level lookup. A style can have 1 OR 2 base sizes.
+    // A Buy File row is flagged as a base-size row when its Size Code equals ANY of them.
+    const styleBases=L.baseSize.get(kSize(norm(r["Style No"])))||[];
+    const matchBase=styleBases.find(b=>kSize(r["Size Code"])===kSize(b));
+    r["Base Sizes"]=matchBase!=null?matchBase:"";
     // Shipment Sample (BC): lookup Style+Color+Size against the Shipment Sample Sizes mapping list
     const ssv=L.shipSize.get(kSize(r["Style+Color+Size"]));
     r["Shipment Sample"]=(ssv!=null&&ssv!=="")?ssv:"";
@@ -5817,7 +5889,7 @@ const TEMPLATES=[
  },
  {
   "name": "Mapping - Base Sizes",
-  "desc": "The base size for each style. Base size is set at style level (same across all colours). One row per Style No.",
+  "desc": "The base size for each style (same across all colours). A style can have 1 or 2 base sizes — put both in the Base Size cell separated by a comma (e.g. \"M,L\"). Top Sample generates a row for each base size; other categories use the first (primary) one.",
   "cols": [
    {
     "h": "Style No",
@@ -5827,7 +5899,7 @@ const TEMPLATES=[
    {
     "h": "Base Size",
     "role": "logic",
-    "note": "The style's base size — used to pick the base-size row for most categories."
+    "note": "The style's base size(s). One size, or two separated by a comma (e.g. \"M,L\") — Top Sample uses each; other categories use the first."
    },
    {
     "h": "Product Category",
@@ -5838,7 +5910,7 @@ const TEMPLATES=[
   "rows": [
    [
     "LW2FC4S",
-    "M",
+    "M,L",
     "Women's"
    ],
    [
@@ -5964,8 +6036,10 @@ const LP_FIELDS = [
     {k:"qtyGB", label:"GB Testing QTY", type:"num"},
   ]},
   {group:"Shipment sample", items:[
-    {k:"mensBottomPrefixes", label:"Men's Bottom style prefixes", type:"text", hint:"Comma-separated, e.g. LM5, LM9"},
-    {k:"mensBottomQty", label:"Men's Bottom QTY (single row)", type:"num"},
+    {k:"shipSingleRowPrefixes", label:"Single-row prefixes (base only, QTY 3)", type:"text", hint:"e.g. LM9, LM7, LM3 — Men's Underwear/Shorts/Tops"},
+    {k:"shipSingleRowQty", label:"Single-row QTY", type:"num"},
+    {k:"shipPantsPrefixes", label:"Men's Pants prefixes (2 rows)", type:"text", hint:"e.g. LM5 — base + down-size"},
+    {k:"shipPantsDownSize", label:"Men's Pants down-size", type:"text", hint:"e.g. 32"},
     {k:"shipBaseQty", label:"Shipment base-size QTY", type:"num"},
     {k:"shipDownQty", label:"Shipment down-size QTY", type:"num"},
     {k:"size34Down", label:"Size 34 steps down to", type:"text"},
@@ -5976,10 +6050,10 @@ const LOGIC_REFERENCE = [
     factory:"From factory mapping", channel:"Priority Destination", dates:"Req HOD −@hodMinusDays days · Req In DC +@reqInDcPlusDays",
     extra:"QTY is left blank if any of Shifts, Lines or Run length is missing or zero.",
     example:"3 shifts × 2 lines × 400 run = QTY 2,400, base size only."},
-  {cat:"Top Sample", qual:"TOP = Required", size:"Base size (from Base Sizes list)", qty:"@qtyTop", ship:"COURIER",
+  {cat:"Top Sample", qual:"TOP = Required", size:"Each base size (1 or 2 from Base Sizes list)", qty:"@qtyTop", ship:"COURIER",
     factory:"From factory mapping", channel:"The Channel of the style+colour's earliest Req HOD row in the Buy File", dates:"Req HOD −@hodMinusDays days · Req In DC +@reqInDcPlusDays",
-    extra:"For each style+colour, the destination follows whichever Buy File row has the first (earliest) requested HOD, and uses that row's Channel.",
-    example:"If the earliest-HOD row for the style+colour ships to ASIA, the Top Sample Channel = ASIA. One row per qualifying style+colour at the base size, QTY @qtyTop."},
+    extra:"If a style has two base sizes mapped, Top Sample generates a row for EACH base size (other categories use only the primary one). Destination follows the Buy File row with the earliest requested HOD.",
+    example:"Style with base sizes M and L → two Top Sample rows (M and L), each QTY @qtyTop. Single base size → one row."},
   {cat:"BV & Internal Wash", qual:"BV & Internal Wash = Required", size:"Smaller base size", qty:"@qtyBV_hod1 if HOD Priority = 1, else @qtyBV_other", ship:"ROAD",
     factory:"From factory mapping", channel:"Priority Destination (BV list)", dates:"Req HOD −@hodMinusDays days · Req In DC +@reqInDcPlusDays",
     extra:"Uses the smaller of the style+colour's base sizes.",
@@ -6002,10 +6076,10 @@ const LOGIC_REFERENCE = [
     factory:"From factory mapping", channel:"Priority Destination", dates:"Req HOD −@hodMinusDays days · Req In DC +@reqInDcPlusDays",
     extra:"Qualifies on HOD Priority 1; single smallest base size.",
     example:"Priority-1 colour → one smallest-size row, QTY @qtyPPZ."},
-  {cat:"Shipment Sample", qual:"Shipment Sample = Required", size:"From Shipment Sizes list", qty:"Men's Bottom: @mensBottomQty (1 row) · others: base @shipBaseQty + down @shipDownQty (2 rows)", ship:"COURIER",
+  {cat:"Shipment Sample", qual:"Shipment Sample = Required", size:"From Shipment Sizes list", qty:"Single-row prefixes: @shipSingleRowQty (1 row) · Men's Pants: base @shipBaseQty + down @shipDownQty (2 rows) · others: base @shipBaseQty + down @shipDownQty (2 rows)", ship:"COURIER",
     factory:"From factory mapping", channel:"Priority Destination", dates:"Req HOD −@hodMinusDays days · Req In DC +@reqInDcPlusDays",
-    extra:"Men's Bottom = style prefixes @mensBottomPrefixes. Down-size steps one down the ladder; size 34 steps to @size34Down.",
-    example:"Non-Men's base 32 → rows: 32 @shipBaseQty and 30 @shipDownQty. Men's Bottom base 32 → one row: 32 @mensBottomQty."},
+    extra:"Single-row prefixes @shipSingleRowPrefixes (Men's Underwear/Shorts/Tops) → one base-size row, QTY @shipSingleRowQty. Men's Pants @shipPantsPrefixes → base size QTY @shipBaseQty plus a fixed down-size (@shipPantsDownSize) QTY @shipDownQty. All other styles → base + laddered down-size.",
+    example:"LM9/LM7/LM3 base 8 → one row: 8 QTY 3. LM5 base 34 → two rows: 34 QTY 1 and 32 QTY 2 (total 3)."},
   {cat:"GB Testing", qual:"GB Testing = Required AND HOD Priority = 1", size:"Smallest base size", qty:"@qtyGB", ship:"COURIER",
     factory:"From factory mapping", channel:"Style+colour's China channel (falls back to any colour of the style)", dates:"Req HOD −@hodMinusDaysGB days · Req In DC +@reqInDcPlusDays",
     extra:"One row per qualifying proc line; note the GB-specific −@hodMinusDaysGB day HOD offset.",
